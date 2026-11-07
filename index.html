@@ -172,13 +172,16 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .install{
   position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:15;
-  display:flex;gap:10px;align-items:flex-start;max-width:496px;margin:0 auto;
+  display:flex;gap:10px;align-items:center;max-width:496px;margin:0 auto;
   background:var(--ink);color:var(--bg);border-radius:16px;padding:13px 12px 13px 15px;font-size:14px;line-height:1.45;
   box-shadow:0 10px 30px rgba(0,0,0,.25);
 }
 .install[hidden]{display:none}
 .install b{font-weight:700}
-.install button{flex:none;border:0;background:rgba(127,127,127,.25);color:inherit;border-radius:50%;width:28px;height:28px;cursor:pointer}
+.install .msg{flex:1;min-width:0}
+.install .act{flex:none;border:0;border-radius:11px;padding:9px 13px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:700;white-space:nowrap;cursor:pointer}
+.install .act[hidden]{display:none}
+.install .x{flex:none;border:0;background:rgba(127,127,127,.25);color:inherit;border-radius:50%;width:28px;height:28px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -255,8 +258,9 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="install" id="install" hidden>
-  <div><b>인터넷 없이 쓰려면</b><br>Safari 공유 메뉴 → <b>‘홈 화면에 추가’</b>를 누르고, 홈 화면 아이콘으로 한 번 열어주세요.</div>
-  <button type="button" id="installClose" aria-label="닫기">✕</button>
+  <div class="msg" id="installMsg"></div>
+  <button type="button" class="act" id="installAct" hidden></button>
+  <button type="button" class="x" id="installClose" aria-label="닫기">✕</button>
 </div>
 
 <script>
@@ -624,13 +628,61 @@ window.addEventListener('online', () => { renderStatus(); maybeRefresh(); });
 window.addEventListener('offline', renderStatus);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderStatus(); maybeRefresh(); } });
 
-/* ---------- 홈 화면 설치 안내 (iPhone Safari) ---------- */
-const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/* ---------- 설치 안내 (아이폰 / 안드로이드 / 카톡 같은 앱 안 브라우저) ---------- */
+const UA = navigator.userAgent;
+const isIOS = /iPhone|iPad|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/i.test(UA);
+const isKakao = /KAKAOTALK/i.test(UA);
+const inApp = isKakao || /Instagram|FBAN|FBAV|FB_IAB|NAVER\(inapp|Line\/|DaumApps|everytimeApp|; wv\)/i.test(UA);
 const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-if (isIOS && !standalone && /^https?:$/.test(location.protocol) && !store.get('fx.installHidden')) {
+const onWeb = /^https?:$/.test(location.protocol);
+let installEvt = null;
+
+function showInstall(html, actLabel, act) {
+  $('#installMsg').innerHTML = html;
+  const b = $('#installAct');
+  b.hidden = !actLabel;
+  b.textContent = actLabel || '';
+  b.onclick = act || null;
   $('#install').hidden = false;
 }
+function setupInstall() {
+  if (standalone || !onWeb) return;
+  // 카톡·인스타 같은 앱 안에서 열면 설치가 안 됨 → 진짜 브라우저로 보내기 (닫아도 다음에 또 안내)
+  if (inApp && (isIOS || isAndroid)) {
+    const browser = isIOS ? 'Safari로' : 'Chrome으로';
+    if (isKakao) {
+      return showInstall(`<b>카카오톡 안에서는 설치가 안 돼요</b><br>${browser} 열어서 설치해 주세요.`, `${browser} 열기`,
+        () => { location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href); });
+    }
+    if (isAndroid) {
+      return showInstall('<b>이 앱 안에서는 설치가 안 돼요</b><br>Chrome으로 열어서 설치해 주세요.', 'Chrome으로 열기',
+        () => { location.href = 'intent://' + location.host + location.pathname + '#Intent;scheme=https;package=com.android.chrome;end'; });
+    }
+    return showInstall('<b>이 앱 안에서는 설치가 안 돼요</b><br>⋯ 메뉴 → <b>‘Safari로 열기’</b>(또는 ‘외부 브라우저로 열기’)를 눌러주세요.');
+  }
+  if (store.get('fx.installHidden')) return;
+  if (isIOS) {
+    return showInstall('<b>인터넷 없이 쓰려면</b><br>공유 버튼(□↑) → <b>‘홈 화면에 추가’</b> 후, 홈 화면의 아이콘으로 한 번 열어주세요.');
+  }
+  if (isAndroid) {
+    if (installEvt) {
+      return showInstall('<b>인터넷 없이 쓰려면</b><br>앱으로 설치해 두세요.', '설치', async () => {
+        const e = installEvt; installEvt = null;
+        e.prompt();
+        try { await e.userChoice; } catch (err) {}
+      });
+    }
+    return showInstall('<b>인터넷 없이 쓰려면</b><br>브라우저 메뉴(⋮) → <b>‘홈 화면에 추가’</b> 또는 <b>‘앱 설치’</b>를 눌러주세요.');
+  }
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; setupInstall(); });
+window.addEventListener('appinstalled', () => {
+  $('#install').hidden = true;
+  toast('설치됐어요! 홈 화면의 “환율” 아이콘으로 열어주세요');
+});
 $('#installClose').addEventListener('click', () => { $('#install').hidden = true; store.set('fx.installHidden', true); });
+setupInstall();
 
 /* ---------- 오프라인 캐시 ---------- */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

@@ -3,6 +3,7 @@
   "short_name": "환율",
   "description": "유로 · 디르함 · 원 환율계산기 (인터넷 없이도 동작)",
   "lang": "ko",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
