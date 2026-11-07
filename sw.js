@@ -1,9 +1,14 @@
 // 환율계산기 오프라인 캐시. 파일을 바꾸면 VERSION을 올려주세요.
-const VERSION = 'fx-v1';
+const VERSION = 'fx-v2';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' → 브라우저 캐시 말고 서버에서 새로 받아서 저장
+  event.waitUntil(
+    caches.open(VERSION)
+      .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {
