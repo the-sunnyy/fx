@@ -147,6 +147,8 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 .row.swipe-r .amt{animation:swipeR .2s ease-out}
 @keyframes swipeL{from{transform:translateX(-16px);opacity:.35}}
 @keyframes swipeR{from{transform:translateX(16px);opacity:.35}}
+.row.swipe-d .amt{animation:swipeD .22s ease-out}
+@keyframes swipeD{from{transform:translateY(-14px);opacity:.3}}
 
 /* sheet */
 .sheet{position:fixed;inset:0;z-index:20}
@@ -183,7 +185,12 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
   background:var(--ink);color:var(--bg);font-size:14px;font-weight:500;padding:10px 16px;border-radius:999px;
   max-width:calc(100% - 32px);text-align:center;
 }
-.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.show{opacity:1;transform:translate(-50%,-50%)}
+.toast:not(.show){transform:translate(-50%,calc(-50% + 8px))}
+.toast{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.toast.show.has-act{pointer-events:auto;padding:5px 5px 5px 15px}
+.toast .tact{border:0;border-radius:999px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:700;padding:6px 13px;cursor:pointer}
+.toast .tact[hidden]{display:none}
 .install{
   position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:15;
   display:flex;gap:10px;align-items:center;max-width:496px;margin:0 auto;
@@ -270,7 +277,7 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
   </div>
 </div>
 
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toastMsg"></span><button type="button" class="tact" id="toastAct" hidden></button></div>
 <div class="install" id="install" hidden>
   <div class="msg" id="installMsg"></div>
   <button type="button" class="act" id="installAct" hidden></button>
@@ -385,6 +392,7 @@ function toExpr(v, d) {
 }
 
 function press(k) {
+  dropUndo();
   const fresh = state.fresh;
   let e = state.expr;
   if (k === 'C') {
@@ -429,6 +437,7 @@ function press(k) {
 // 유로 ↔ 디르함 전환: 입력한 숫자는 그대로 두고 통화만 바꿈
 function setForeign(f) {
   if (f === state.foreign || !FOREIGN.includes(f)) return;
+  dropUndo();
   if (state.active === state.foreign) state.active = f;
   state.foreign = f;
   store.set('fx.foreign', f);
@@ -439,6 +448,7 @@ function setForeign(f) {
 function setActive(c) {
   if (c === state.active || !CURS.includes(c)) return;
   if (c !== 'KRW' && c !== state.foreign) return;
+  dropUndo();
   const v = evaluate(state.expr);
   const nv = (v * K(state.active)) / K(c);
   state.active = c;
@@ -620,13 +630,27 @@ $('#btnAuto').addEventListener('click', async () => {
 
 /* ---------- 입력 이벤트 ---------- */
 let toastTimer;
-function toast(msg) {
-  const el = $('#toast');
-  el.textContent = msg;
+function hideToast() {
+  $('#toast').classList.remove('show');
+  $('#toastAct').onclick = null;
+}
+function toast(msg, actLabel, act) {
+  const el = $('#toast'), b = $('#toastAct');
+  $('#toastMsg').textContent = msg;
+  b.hidden = !actLabel;
+  b.textContent = actLabel || '';
+  b.onclick = actLabel ? () => { hideToast(); act(); } : null;
+  el.classList.toggle('has-act', !!actLabel);
+  // 알림은 환율 줄(1 € = …원) 자리에 띄움 → 유로/디르함 버튼이나 키패드를 가리지 않게
+  const h = $('#hint').getBoundingClientRect();
+  if (h.height) el.style.top = Math.round(h.top + h.height / 2) + 'px';
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2300);
+  toastTimer = setTimeout(hideToast, actLabel ? 4000 : 2300);
 }
+// 아래로 쓸어서 전부 지운 직후에만 '되돌리기' 가능. 다른 걸 누르면 되돌리기는 사라짐
+let undoOpen = false;
+function dropUndo() { if (undoOpen) { undoOpen = false; hideToast(); } }
 function nudge() {
   const row = rowsEl[state.active];
   row.classList.remove('nudge'); void row.offsetWidth; row.classList.add('nudge');
@@ -657,6 +681,24 @@ rowsBox.addEventListener('pointerdown', ev => { swipe = { id: ev.pointerId, x: e
 rowsBox.addEventListener('pointermove', ev => {
   if (!swipe || swipe.done || swipe.id !== ev.pointerId) return;
   const dx = ev.clientX - swipe.x, dy = ev.clientY - swipe.y;
+  // 아래로 길게 쓸기 → 전부 지우기 (4초 동안 되돌리기 가능)
+  if (dy >= 60 && dy > Math.abs(dx) * 1.5) {
+    swipe.done = true;
+    swipedAt = Date.now();
+    if (state.expr === '') return nudge();
+    const before = { expr: state.expr, fresh: state.fresh, active: state.active };
+    press('C');
+    const row = rowsEl[state.active];
+    row.classList.remove('swipe-l', 'swipe-r', 'swipe-d'); void row.offsetWidth; row.classList.add('swipe-d');
+    undoOpen = true;
+    toast('전부 지웠어요', '되돌리기', () => {
+      undoOpen = false;
+      if (state.active !== before.active) return;
+      state.expr = before.expr; state.fresh = before.fresh;
+      commit();
+    });
+    return;
+  }
   if (Math.abs(dx) >= 30 && Math.abs(dx) > Math.abs(dy) * 1.5) {
     swipe.done = true;
     swipedAt = Date.now();
