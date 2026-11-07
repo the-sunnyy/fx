@@ -133,6 +133,10 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 @media (prefers-color-scheme: dark){ .k.clear{color:#ff7b70} }
 .k.eq{grid-row:span 2;background:var(--accent);color:var(--on-accent);font-size:32px}
 .k svg{width:26px;height:26px}
+/* 지우기 버튼: 진하게, 크게 */
+.k.back svg{width:36px;height:36px}
+.k.back .shape{fill:var(--ink)}
+.k.back .x{fill:none;stroke:var(--key2);stroke-width:2.3;stroke-linecap:round}
 
 /* sheet */
 .sheet{position:fixed;inset:0;z-index:20}
@@ -217,11 +221,11 @@ button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
 
   <section class="pad" id="pad" aria-label="키패드">
     <button class="k fn clear" data-k="C" type="button">C</button>
-    <button class="k fn" data-k="back" type="button" aria-label="지우기">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="m12.5 9.5 5 5m0-5-5 5"/></svg>
-    </button>
     <button class="k op" data-k="/" type="button" aria-label="나누기">÷</button>
     <button class="k op" data-k="*" type="button" aria-label="곱하기">×</button>
+    <button class="k fn back" data-k="back" type="button" aria-label="지우기">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="shape" d="M8.6 4.5h10.9A2.5 2.5 0 0 1 22 7v10a2.5 2.5 0 0 1-2.5 2.5H8.6a2 2 0 0 1-1.5-.7l-4.7-5.5a2 2 0 0 1 0-2.6l4.7-5.5a2 2 0 0 1 1.5-.7z"/><path class="x" d="m11.6 9.1 5.8 5.8m0-5.8-5.8 5.8"/></svg>
+    </button>
     <button class="k" data-k="7" type="button">7</button>
     <button class="k" data-k="8" type="button">8</button>
     <button class="k" data-k="9" type="button">9</button>
@@ -290,9 +294,15 @@ let loading = false;
 
 let state = (() => {
   const s = store.get('fx.state');
+  // 마지막에 고른 외화(유로/디르함)는 따로도 저장해 둠 → 껐다 켜도 그대로
+  const savedF = store.get('fx.foreign');
   const ok = s && CURS.includes(s.active) && typeof s.expr === 'string' && /^-?[\d.+\-*/]{0,48}$/.test(s.expr);
-  if (!ok) return { foreign: 'EUR', active: 'EUR', expr: '', fresh: true };
-  const foreign = FOREIGN.includes(s.foreign) ? s.foreign : (s.active === 'AED' ? 'AED' : 'EUR');
+  if (!ok) {
+    const f = FOREIGN.includes(savedF) ? savedF : 'EUR';
+    return { foreign: f, active: f, expr: '', fresh: true };
+  }
+  const foreign = FOREIGN.includes(savedF) ? savedF
+    : FOREIGN.includes(s.foreign) ? s.foreign : (s.active === 'AED' ? 'AED' : 'EUR');
   const active = s.active === 'KRW' ? 'KRW' : foreign;
   return { foreign, active, expr: s.expr, fresh: true };
 })();
@@ -378,6 +388,7 @@ function setForeign(f) {
   if (f === state.foreign || !FOREIGN.includes(f)) return;
   if (state.active === state.foreign) state.active = f;
   state.foreign = f;
+  store.set('fx.foreign', f);
   commit();
   renderStatus();
 }
@@ -624,6 +635,10 @@ document.addEventListener('keydown', ev => {
   if (b) { b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 90); }
 });
 
+// 앱을 닫거나 다른 앱으로 넘어갈 때 한 번 더 저장
+const saveNow = () => { store.set('fx.foreign', state.foreign); store.set('fx.state', { foreign: state.foreign, active: state.active, expr: state.expr }); };
+window.addEventListener('pagehide', saveNow);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
 window.addEventListener('online', () => { renderStatus(); maybeRefresh(); });
 window.addEventListener('offline', renderStatus);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderStatus(); maybeRefresh(); } });
