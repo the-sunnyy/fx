@@ -51,20 +51,22 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 }
 
 /* header */
-.top{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px}
-.title{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.top{display:flex;align-items:center;gap:8px;min-height:44px}
+.title{flex:none;font-size:17px;font-weight:700;letter-spacing:-.01em}
+/* 환율 + 날짜 한 버튼. 누르면 환율 창 (새로고침 · 직접 입력) */
 .status{
-  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
-  border-radius:999px;padding:6px 11px 6px 10px;font-size:13px;color:var(--muted);cursor:pointer;
+  flex:0 1 auto;min-width:0;margin-left:auto;
+  display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:6px 12px 6px 10px;font-size:13px;color:var(--muted);cursor:pointer;
+  white-space:nowrap;font-variant-numeric:tabular-nums;
 }
+.status .rates{color:var(--ink);font-weight:600}
+.status .st-text::before{content:"· ";color:var(--faint)}
 .status .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
 .status[data-state="stale"] .dot{background:var(--warn)}
 .status[data-state="off"] .dot{background:var(--off)}
 .status[data-state="manual"] .dot{background:var(--manual)}
 .status[data-state="busy"] .dot{background:var(--accent);animation:pulse .9s ease-in-out infinite}
-.status .spin{font-size:13px;line-height:1;opacity:.75}
-.status[data-state="busy"] .spin{animation:spin .9s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{50%{opacity:.3}}
 
 /* 외화 선택 (유로 ↔ 디르함) */
@@ -77,7 +79,7 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 .seg .f{font-size:19px;line-height:1}
 
 /* currency rows */
-.rows{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:4px 0 0}
+.rows{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:6px 0 0}
 .row[hidden]{display:none}
 .row{
   flex:1 1 0;min-height:70px;max-height:170px;width:100%;
@@ -110,13 +112,13 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 .row.nudge .amt{animation:nudge .22s}
 @keyframes nudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 
-/* rate hint (유로/디르함 버튼 바로 아래) */
-.hint{
-  display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
-  border:0;background:none;padding:8px 4px 3px;font-size:12.5px;color:var(--muted);cursor:pointer;
-  font-variant-numeric:tabular-nums;
+
+/* 폭이 좁은 폰: 제목·환율·날짜가 한 줄에 들어가게 조금 작게 */
+@media (max-width: 370px){
+  .top{gap:6px}
+  .title{font-size:16px}
+  .status{padding:6px 10px 6px 9px;gap:5px;font-size:12.5px}
 }
-.hint .edit{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11.5px;color:var(--ink);background:var(--card)}
 
 /* 자주 쓰는 금액 5 · 10 · 15 · 20 · 25 · 30 */
 .quick{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:10px 0 8px}
@@ -139,7 +141,6 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
   .top{min-height:38px}
   .seg{margin:4px 0 0}
   .seg button{padding:7px 6px}
-  .hint{padding:5px 4px 1px}
   .rows{gap:6px}
   .row{min-height:60px;padding:4px 14px}
   .flag{font-size:24px}
@@ -241,8 +242,8 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 <div class="app">
   <header class="top">
     <div class="title">환율계산기</div>
-    <button class="status" id="status" type="button" aria-label="환율 새로고침">
-      <span class="dot"></span><span class="st-text">…</span><span class="spin" aria-hidden="true">↻</span>
+    <button class="status" id="status" type="button" aria-label="환율">
+      <span class="dot"></span><span class="rates"></span><span class="st-text">…</span>
     </button>
   </header>
 
@@ -250,8 +251,6 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
     <button type="button" data-f="EUR"><span class="f" aria-hidden="true">🇪🇺</span>유로</button>
     <button type="button" data-f="AED"><span class="f" aria-hidden="true">🇦🇪</span>디르함</button>
   </div>
-
-  <button class="hint" id="hint" type="button"><span class="rates"></span><span class="edit">✎ 환율</span></button>
 
   <main class="rows">
     <button class="row" data-cur="EUR" type="button">
@@ -592,6 +591,8 @@ function render() {
   }
 }
 
+// 1000원 넘으면 소수점 빼고(1,516), 작으면 소수 둘째 자리까지(369.99)
+function shortRate(v) { return v.toLocaleString('en-US', { maximumFractionDigits: v >= 1000 ? 0 : 2 }); }
 function rateText(v) { return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function fmtDate(t) { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일`; }
 function fmtTime(t) {
@@ -601,18 +602,20 @@ function fmtTime(t) {
 function renderStatus() {
   const s = $('#status');
   let st = 'ok', label;
-  if (loading) { st = 'busy'; label = '환율 받는 중…'; }
-  else if (rates.manual) { st = 'manual'; label = '직접 입력한 환율'; }
+  // 제목 옆에 환율이 들어가서 글자는 짧게 (자세한 건 누르면 나오는 환율 창에)
+  if (loading) { st = 'busy'; label = '받는 중…'; }
+  else if (rates.manual) { st = 'manual'; label = '직접 입력'; }
   else {
-    label = fmtDate(rates.at) + ' 환율';
+    label = fmtDate(rates.at);
     if (Date.now() - rates.at > STALE_AFTER) st = 'stale';
-    else if (navigator.onLine === false) { st = 'off'; label = '오프라인 · ' + label; }
+    else if (navigator.onLine === false) st = 'off';
   }
   s.dataset.state = st;
   s.querySelector('.st-text').textContent = label;
-  $('#hint .rates').textContent = state.foreign === 'EUR'
-    ? `1 € = ${rateText(rates.EUR)}원`
-    : `1 AED = ${rateText(rates.AED)}원`;
+  s.querySelector('.rates').textContent = state.foreign === 'EUR'
+    ? `1 € = ${shortRate(rates.EUR)}원`
+    : `1 AED = ${shortRate(rates.AED)}원`;
+  s.setAttribute('aria-label', '환율 ' + s.querySelector('.rates').textContent + (st === 'off' ? ' · 오프라인' : '') + ' · ' + label + ' · 누르면 새로고침·직접 입력');
 }
 
 /* ---------- 환율 받기 (인터넷 될 때만) ---------- */
@@ -703,8 +706,8 @@ function toast(msg, actLabel, act) {
   b.textContent = actLabel || '';
   b.onclick = actLabel ? () => { hideToast(); act(); } : null;
   el.classList.toggle('has-act', !!actLabel);
-  // 알림은 환율 줄(1 € = …원) 자리에 띄움 → 유로/디르함 버튼이나 키패드를 가리지 않게
-  const h = $('#hint').getBoundingClientRect();
+  // 알림은 맨 윗줄(제목·환율) 자리에 띄움 → 유로/디르함 버튼이나 숫자, 키패드를 가리지 않게
+  const h = $('.top').getBoundingClientRect();
   if (h.height) el.style.top = Math.round(h.top + h.height / 2) + 'px';
   el.classList.add('show');
   clearTimeout(toastTimer);
@@ -791,8 +794,7 @@ document.querySelectorAll('.row').forEach(r => r.addEventListener('click', () =>
   setActive(r.dataset.cur);
 }));
 document.querySelectorAll('#seg button').forEach(b => b.addEventListener('click', () => setForeign(b.dataset.f)));
-$('#status').addEventListener('click', () => refresh(true));
-$('#hint').addEventListener('click', openSheet);
+$('#status').addEventListener('click', openSheet); // 환율 창에서 새로고침 · 직접 입력
 
 document.addEventListener('keydown', ev => {
   if (!sheet.hidden) { if (ev.key === 'Escape') closeSheet(); return; }
