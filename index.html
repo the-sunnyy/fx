@@ -77,7 +77,7 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 .seg .f{font-size:19px;line-height:1}
 
 /* currency rows */
-.rows{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:6px 0 0}
+.rows{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:4px 0 0}
 .row[hidden]{display:none}
 .row{
   flex:1 1 0;min-height:70px;max-height:170px;width:100%;
@@ -110,13 +110,45 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 .row.nudge .amt{animation:nudge .22s}
 @keyframes nudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 
-/* rate hint */
+/* rate hint (유로/디르함 버튼 바로 아래) */
 .hint{
   display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
-  border:0;background:none;padding:9px 4px;font-size:12.5px;color:var(--muted);cursor:pointer;
+  border:0;background:none;padding:8px 4px 3px;font-size:12.5px;color:var(--muted);cursor:pointer;
   font-variant-numeric:tabular-nums;
 }
 .hint .edit{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11.5px;color:var(--ink);background:var(--card)}
+
+/* 자주 쓰는 금액 5 · 10 · 15 · 20 · 25 · 30 */
+.quick{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:10px 0 8px}
+.q{
+  border:0;border-radius:13px;height:clamp(38px, calc(var(--kh) * .72), 46px);
+  background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1.5px rgba(14,124,102,.22);
+  font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;touch-action:manipulation;
+  transition:transform .06s,background .15s,color .15s;
+}
+.q.down{transform:scale(.93)}
+.q[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);box-shadow:none}
+@media (prefers-color-scheme: dark){ .q{box-shadow:inset 0 0 0 1.5px rgba(63,196,164,.28)} .q[aria-pressed="true"]{box-shadow:none} }
+.row.pop .amt{animation:pop .2s ease-out;transform-origin:right center}
+@keyframes pop{from{transform:scale(.88);opacity:.4}}
+
+/* 키가 낮은 화면 (작은 아이폰 + Safari 주소창 등): 간격을 줄여서 한 화면에 다 들어가게 */
+@media (max-height: 620px){
+  :root{--kh:clamp(38px, 7.4vh, 46px)}
+  .top{min-height:38px}
+  .seg{margin:4px 0 0}
+  .seg button{padding:7px 6px}
+  .hint{padding:5px 4px 1px}
+  .rows{gap:6px}
+  .row{min-height:60px;padding:4px 14px}
+  .flag{font-size:24px}
+  .expr,.sub{line-height:14px;min-height:14px}
+  .amt{font-size:min(30px, 8vw)}
+  .quick{margin:7px 0 6px}
+  .q{height:34px}
+  .pad{gap:6px}
+}
 
 /* keypad */
 .pad{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:var(--kh);gap:8px}
@@ -219,6 +251,8 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
     <button type="button" data-f="AED"><span class="f" aria-hidden="true">🇦🇪</span>디르함</button>
   </div>
 
+  <button class="hint" id="hint" type="button"><span class="rates"></span><span class="edit">✎ 환율</span></button>
+
   <main class="rows">
     <button class="row" data-cur="EUR" type="button">
       <span class="cur"><span class="flag" aria-hidden="true">🇪🇺</span><span class="code">EUR<small>유로 · 유럽</small></span></span>
@@ -234,7 +268,15 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
     </button>
   </main>
 
-  <button class="hint" id="hint" type="button"><span class="rates"></span><span class="edit">✎ 환율</span></button>
+  <!-- 자주 쓰는 금액: 누르면 지금 고른 외화(유로/디르함)에 바로 들어감 -->
+  <div class="quick" id="quick" role="group" aria-label="자주 쓰는 금액">
+    <button class="q" data-q="5" type="button">5</button>
+    <button class="q" data-q="10" type="button">10</button>
+    <button class="q" data-q="15" type="button">15</button>
+    <button class="q" data-q="20" type="button">20</button>
+    <button class="q" data-q="25" type="button">25</button>
+    <button class="q" data-q="30" type="button">30</button>
+  </div>
 
   <section class="pad" id="pad" aria-label="키패드">
     <button class="k fn clear" data-k="C" type="button">C</button>
@@ -434,6 +476,21 @@ function press(k) {
   commit();
 }
 
+// 자주 쓰는 금액 버튼: 지금 고른 외화에 그 금액을 바로 넣음.
+// "20 +" 처럼 계산 기호 뒤에 누르면 이어서 계산 (20 + 5)
+function quick(n) {
+  dropUndo();
+  const f = state.foreign;
+  if (state.active === f && !state.fresh && /[+\-*/]$/.test(state.expr) && state.expr.length < 44) {
+    state.expr += n; state.fresh = false;
+  } else {
+    state.active = f; state.expr = String(n); state.fresh = true;
+  }
+  commit();
+  const row = rowsEl[f];
+  row.classList.remove('pop', 'swipe-l', 'swipe-r', 'swipe-d'); void row.offsetWidth; row.classList.add('pop');
+}
+
 // 유로 ↔ 디르함 전환: 입력한 숫자는 그대로 두고 통화만 바꿈
 function setForeign(f) {
   if (f === state.foreign || !FOREIGN.includes(f)) return;
@@ -514,6 +571,11 @@ function render() {
   const krw = v * K(a);
   const hasOp = /[+\-*/]/.test(e.slice(1));
   document.querySelectorAll('#seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === state.foreign ? 'true' : 'false'));
+  const fName = state.foreign === 'EUR' ? '유로' : '디르함';
+  document.querySelectorAll('#quick .q').forEach(b => {
+    b.setAttribute('aria-pressed', a === state.foreign && e === b.dataset.q ? 'true' : 'false');
+    b.setAttribute('aria-label', b.dataset.q + ' ' + fName);
+  });
   for (const c of CURS) {
     const row = rowsEl[c], act = c === a;
     row.hidden = c !== 'KRW' && c !== state.foreign;
@@ -669,10 +731,22 @@ pad.addEventListener('pointerdown', ev => {
 });
 const release = () => {
   clearTimeout(holdTimer);
-  pad.querySelectorAll('.k.down').forEach(b => b.classList.remove('down'));
+  document.querySelectorAll('.k.down, .q.down').forEach(b => b.classList.remove('down'));
 };
 ['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, release));
 pad.addEventListener('contextmenu', ev => ev.preventDefault());
+
+const quickBox = $('#quick');
+quickBox.addEventListener('pointerdown', ev => {
+  const b = ev.target.closest('.q');
+  if (!b) return;
+  ev.preventDefault();
+  b.classList.add('down');
+  quick(Number(b.dataset.q));
+});
+// 손가락 말고 키보드·음성 안내(VoiceOver)로 누른 경우
+quickBox.addEventListener('click', ev => { const b = ev.target.closest('.q'); if (b && ev.detail === 0) quick(Number(b.dataset.q)); });
+quickBox.addEventListener('contextmenu', ev => ev.preventDefault());
 
 /* 숫자 칸을 옆으로 쓸면 한 자리씩 지우기 (아이폰 기본 계산기처럼, 한 번 쓸 때 한 자리) */
 const rowsBox = $('.rows');
