@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" class="boot">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -43,6 +43,7 @@ body{
   -webkit-text-size-adjust:100%;
 }
 button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동안만 숨김 */
 .app{
   height:100%;max-width:520px;margin:0 auto;display:flex;flex-direction:column;
   padding:calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 14px)
@@ -281,18 +282,47 @@ const AUTO_EVERY = 2 * 3600e3;   // 인터넷 되면 2시간마다 갱신
 const STALE_AFTER = 3 * 864e5;   // 3일 넘으면 노란 점
 
 const $ = s => document.querySelector(s);
+/* ---------- 저장 ----------
+   localStorage: 바로 읽을 수 있어서 빠름. 하지만 앱을 강제로 끄면(위로 쓸어 올리기) 방금 바꾼 값이 날아갈 수 있음.
+   IndexedDB: 강제로 꺼도 남음 → 둘 다에 저장하고, 켤 때는 IndexedDB 값을 우선. */
+const PERSIST_KEYS = ['fx.rates', 'fx.state', 'fx.foreign', 'fx.installHidden'];
+const idb = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    try {
+      const o = indexedDB.open('fx', 1);
+      o.onupgradeneeded = () => o.result.createObjectStore('kv');
+      o.onsuccess = () => res(o.result);
+      o.onerror = () => rej(o.error);
+    } catch (e) { rej(e); }
+  }));
+  return {
+    set(k, v) {
+      open().then(db => db.transaction('kv', 'readwrite').objectStore('kv').put(v, k)).catch(() => {});
+    },
+    getAll(keys) {
+      return open().then(db => new Promise(res => {
+        const out = {}, t = db.transaction('kv'), s = t.objectStore('kv');
+        keys.forEach(k => { const r = s.get(k); r.onsuccess = () => { if (r.result !== undefined) out[k] = r.result; }; });
+        t.oncomplete = () => res(out);
+        t.onerror = t.onabort = () => res(out);
+      }));
+    },
+  };
+})();
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} idb.set(k, v); },
 };
 
 function validRates(r) {
   return r && typeof r === 'object' && r.EUR > 0 && r.AED > 0 && isFinite(r.EUR) && isFinite(r.AED) ? r : null;
 }
-let rates = Object.assign({}, DEFAULT_RATES, validRates(store.get('fx.rates')) || {});
+const loadRates = () => Object.assign({}, DEFAULT_RATES, validRates(store.get('fx.rates')) || {});
+let rates = loadRates();
 let loading = false;
 
-let state = (() => {
+const loadState = () => {
   const s = store.get('fx.state');
   // 마지막에 고른 외화(유로/디르함)는 따로도 저장해 둠 → 껐다 켜도 그대로
   const savedF = store.get('fx.foreign');
@@ -305,7 +335,8 @@ let state = (() => {
     : FOREIGN.includes(s.foreign) ? s.foreign : (s.active === 'AED' ? 'AED' : 'EUR');
   const active = s.active === 'KRW' ? 'KRW' : foreign;
   return { foreign, active, expr: s.expr, fresh: true };
-})();
+};
+let state = loadState();
 
 const rowsEl = {};
 document.querySelectorAll('.row').forEach(r => { rowsEl[r.dataset.cur] = r; });
@@ -697,7 +728,6 @@ window.addEventListener('appinstalled', () => {
   toast('설치됐어요! 홈 화면의 “환율” 아이콘으로 열어주세요');
 });
 $('#installClose').addEventListener('click', () => { $('#install').hidden = true; store.set('fx.installHidden', true); });
-setupInstall();
 
 /* ---------- 오프라인 캐시 ---------- */
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
@@ -714,7 +744,31 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
 
 render();
 renderStatus();
-maybeRefresh();
+
+// 켤 때: IndexedDB에 남아 있는 값(강제 종료돼도 살아남은 값)을 우선 적용
+const syncFromIdb = saved => {
+  if (!saved) return;
+  let changed = false;
+  for (const k of PERSIST_KEYS) {
+    const lsRaw = (() => { try { return localStorage.getItem(k); } catch (e) { return null; } })();
+    if (k in saved) {
+      const raw = JSON.stringify(saved[k]);
+      if (raw !== lsRaw) { try { localStorage.setItem(k, raw); } catch (e) {} changed = true; }
+    } else if (lsRaw !== null) {
+      idb.set(k, store.get(k)); // 예전 버전에서 쓰던 값 옮겨 담기
+    }
+  }
+  if (changed) { rates = loadRates(); state = loadState(); render(); renderStatus(); }
+};
+const ready = Promise.race([
+  idb.getAll(PERSIST_KEYS).catch(() => null),
+  new Promise(r => setTimeout(() => r(null), 600)),
+]).then(syncFromIdb).catch(() => {}).then(() => {
+  document.documentElement.classList.remove('boot');
+  setupInstall();
+  maybeRefresh();
+});
+window.fxReady = ready;
 })();
 </script>
 </body>

@@ -1,5 +1,5 @@
 // 환율계산기 오프라인 캐시. 파일을 바꾸면 VERSION을 올려주세요.
-const VERSION = 'fx-v4';
+const VERSION = 'fx-v5';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
