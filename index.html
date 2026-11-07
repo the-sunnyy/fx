@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>환율계산기</title>
+<meta name="description" content="유로 · 디르함 · 원 환율계산기 (인터넷 없이도 동작)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="환율">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1012" media="(prefers-color-scheme: dark)">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{
+  --bg:#f3f1ec; --card:#ffffff; --line:#e3dfd6; --ink:#17191c; --muted:#8b877e; --faint:#bdb8ae;
+  --accent:#0e7c66; --accent-soft:#e2f1ec; --on-accent:#ffffff;
+  --key:#ffffff; --key2:#e7e3da; --key-shadow:0 1px 0 rgba(0,0,0,.07);
+  --ok:#1f9d55; --warn:#d48a00; --off:#9a958b; --manual:#3b6fd8;
+  --kh:clamp(46px, 7.2vh, 66px);
+  color-scheme:light dark;
+}
+@supports (height:1dvh){ :root{ --kh:clamp(46px, 7.2dvh, 66px); } }
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1012; --card:#1a1b1e; --line:#2a2c30; --ink:#f3f2ee; --muted:#8e8f93; --faint:#55585d;
+    --accent:#3fc4a4; --accent-soft:rgba(63,196,164,.13); --on-accent:#05251d;
+    --key:#222428; --key2:#2e3136; --key-shadow:none;
+    --ok:#3ccf7e; --warn:#f0b43c; --off:#77797e; --manual:#7aa2f7;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overscroll-behavior:none}
+body{
+  position:fixed;inset:0;overflow:hidden;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+  -webkit-text-size-adjust:100%;
+}
+button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
+.app{
+  height:100%;max-width:520px;margin:0 auto;display:flex;flex-direction:column;
+  padding:calc(env(safe-area-inset-top) + 6px) calc(env(safe-area-inset-right) + 14px)
+          calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 14px);
+}
+
+/* header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px}
+.title{font-size:17px;font-weight:700;letter-spacing:-.01em}
+.status{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:6px 11px 6px 10px;font-size:13px;color:var(--muted);cursor:pointer;
+}
+.status .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.status[data-state="stale"] .dot{background:var(--warn)}
+.status[data-state="off"] .dot{background:var(--off)}
+.status[data-state="manual"] .dot{background:var(--manual)}
+.status[data-state="busy"] .dot{background:var(--accent);animation:pulse .9s ease-in-out infinite}
+.status .spin{font-size:13px;line-height:1;opacity:.75}
+.status[data-state="busy"] .spin{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.3}}
+
+/* currency rows */
+.rows{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:6px 0 0}
+.row{
+  flex:1 1 0;min-height:70px;max-height:170px;width:100%;
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 16px;border-radius:18px;border:1.5px solid var(--line);background:var(--card);
+  text-align:left;cursor:pointer;transition:background .15s,border-color .15s;
+}
+.row.active{border-color:var(--accent);background:var(--accent-soft)}
+.cur{display:flex;align-items:center;gap:11px;flex:none}
+.flag{font-size:28px;line-height:1}
+.code{display:flex;flex-direction:column;font-size:18px;font-weight:700;letter-spacing:.01em;line-height:1.15}
+.code small{font-size:12px;font-weight:500;color:var(--muted);letter-spacing:0;margin-top:2px}
+.out{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-end;justify-content:center}
+.expr,.sub{font-size:12.5px;line-height:16px;min-height:16px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;font-variant-numeric:tabular-nums}
+.amt{
+  font-weight:600;letter-spacing:-.02em;line-height:1.15;white-space:nowrap;max-width:100%;overflow:hidden;
+  font-variant-numeric:tabular-nums;font-size:min(34px, 8.8vw);
+}
+.amt[data-size="m"]{font-size:min(29px, 7.6vw)}
+.amt[data-size="s"]{font-size:min(24px, 6.4vw)}
+.amt[data-size="xs"]{font-size:min(20px, 5.4vw)}
+.amt.zero{color:var(--faint)}
+.row.active .amt{color:var(--ink)}
+.row.active .amt.zero{color:var(--faint)}
+.row.typing .amt::after{
+  content:"";display:inline-block;width:2px;height:.88em;margin-left:3px;vertical-align:-.08em;
+  background:var(--accent);border-radius:1px;animation:blink 1s steps(1) infinite;
+}
+@keyframes blink{50%{opacity:0}}
+.row.nudge .amt{animation:nudge .22s}
+@keyframes nudge{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+/* rate hint */
+.hint{
+  display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  border:0;background:none;padding:9px 4px;font-size:12.5px;color:var(--muted);cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.hint .edit{border:1px solid var(--line);border-radius:999px;padding:2px 8px;font-size:11.5px;color:var(--ink);background:var(--card)}
+
+/* keypad */
+.pad{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:var(--kh);gap:8px}
+.k{
+  border:0;border-radius:16px;background:var(--key);box-shadow:var(--key-shadow);
+  font-size:26px;font-weight:500;color:var(--ink);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .06s,filter .06s;touch-action:manipulation;
+}
+.k.down{transform:scale(.95);filter:brightness(.9)}
+@media (prefers-color-scheme: dark){ .k.down{filter:brightness(1.35)} }
+.k.op{background:var(--key2);color:var(--accent);font-size:29px}
+.k.fn{background:var(--key2);font-size:20px;font-weight:600}
+.k.clear{color:#d1453b}
+@media (prefers-color-scheme: dark){ .k.clear{color:#ff7b70} }
+.k.eq{grid-row:span 2;background:var(--accent);color:var(--on-accent);font-size:32px}
+.k svg{width:26px;height:26px}
+
+/* sheet */
+.sheet{position:fixed;inset:0;z-index:20}
+.sheet[hidden]{display:none}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s}
+.panel{
+  position:absolute;left:50%;top:calc(env(safe-area-inset-top) + 56px);width:min(100% - 28px, 440px);
+  transform:translate(-50%,-12px);opacity:0;transition:transform .2s,opacity .2s;
+  background:var(--card);border-radius:22px;padding:20px 18px 18px;box-shadow:0 18px 50px rgba(0,0,0,.25);
+}
+.sheet.open .scrim{opacity:1}
+.sheet.open .panel{transform:translate(-50%,0);opacity:1}
+.panel h2{margin:0 0 4px;font-size:19px}
+.meta{margin:0 0 16px;font-size:13px;color:var(--muted)}
+.field{display:flex;align-items:center;gap:10px;border:1.5px solid var(--line);border-radius:14px;padding:4px 14px;margin-bottom:10px;background:var(--bg)}
+.field:focus-within{border-color:var(--accent)}
+.field span{font-weight:700;font-size:15px;white-space:nowrap}
+.field input{
+  flex:1;min-width:0;border:0;background:none;outline:none;text-align:right;color:var(--ink);
+  font-family:inherit;font-size:20px;font-weight:600;line-height:1.2;padding:10px 0;font-variant-numeric:tabular-nums;
+  -webkit-user-select:text;user-select:text;
+}
+.field em{font-style:normal;color:var(--muted);font-size:15px}
+.note{font-size:12.5px;line-height:1.5;color:var(--muted);margin:6px 2px 16px}
+.actions{display:flex;gap:8px}
+.btn{flex:1;border-radius:14px;padding:13px 10px;font-size:15px;font-weight:600;cursor:pointer;border:1.5px solid var(--line);background:var(--card)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.close{position:absolute;right:12px;top:12px;width:34px;height:34px;border-radius:50%;border:0;background:var(--bg);font-size:18px;color:var(--muted);cursor:pointer}
+
+/* toast + install banner */
+.toast{
+  position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 54px);z-index:30;
+  transform:translate(-50%,-8px);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;
+  background:var(--ink);color:var(--bg);font-size:14px;font-weight:500;padding:10px 16px;border-radius:999px;
+  max-width:calc(100% - 32px);text-align:center;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.install{
+  position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);z-index:15;
+  display:flex;gap:10px;align-items:flex-start;max-width:496px;margin:0 auto;
+  background:var(--ink);color:var(--bg);border-radius:16px;padding:13px 12px 13px 15px;font-size:14px;line-height:1.45;
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.install[hidden]{display:none}
+.install b{font-weight:700}
+.install button{flex:none;border:0;background:rgba(127,127,127,.25);color:inherit;border-radius:50%;width:28px;height:28px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="title">환율계산기</div>
+    <button class="status" id="status" type="button" aria-label="환율 새로고침">
+      <span class="dot"></span><span class="st-text">…</span><span class="spin" aria-hidden="true">↻</span>
+    </button>
+  </header>
+
+  <main class="rows">
+    <button class="row" data-cur="EUR" type="button">
+      <span class="cur"><span class="flag" aria-hidden="true">🇪🇺</span><span class="code">EUR<small>유로 · 유럽</small></span></span>
+      <span class="out"><span class="expr"></span><span class="amt">0</span><span class="sub"></span></span>
+    </button>
+    <button class="row" data-cur="AED" type="button">
+      <span class="cur"><span class="flag" aria-hidden="true">🇦🇪</span><span class="code">AED<small>디르함 · 두바이</small></span></span>
+      <span class="out"><span class="expr"></span><span class="amt">0</span><span class="sub"></span></span>
+    </button>
+    <button class="row" data-cur="KRW" type="button">
+      <span class="cur"><span class="flag" aria-hidden="true">🇰🇷</span><span class="code">KRW<small>원 · 한국</small></span></span>
+      <span class="out"><span class="expr"></span><span class="amt">0</span><span class="sub"></span></span>
+    </button>
+  </main>
+
+  <button class="hint" id="hint" type="button"><span class="rates"></span><span class="edit">✎ 환율</span></button>
+
+  <section class="pad" id="pad" aria-label="키패드">
+    <button class="k fn clear" data-k="C" type="button">C</button>
+    <button class="k fn" data-k="back" type="button" aria-label="지우기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="m12.5 9.5 5 5m0-5-5 5"/></svg>
+    </button>
+    <button class="k op" data-k="/" type="button" aria-label="나누기">÷</button>
+    <button class="k op" data-k="*" type="button" aria-label="곱하기">×</button>
+    <button class="k" data-k="7" type="button">7</button>
+    <button class="k" data-k="8" type="button">8</button>
+    <button class="k" data-k="9" type="button">9</button>
+    <button class="k op" data-k="-" type="button" aria-label="빼기">−</button>
+    <button class="k" data-k="4" type="button">4</button>
+    <button class="k" data-k="5" type="button">5</button>
+    <button class="k" data-k="6" type="button">6</button>
+    <button class="k op" data-k="+" type="button" aria-label="더하기">+</button>
+    <button class="k" data-k="1" type="button">1</button>
+    <button class="k" data-k="2" type="button">2</button>
+    <button class="k" data-k="3" type="button">3</button>
+    <button class="k eq" data-k="=" type="button" aria-label="계산">=</button>
+    <button class="k" data-k="00" type="button">00</button>
+    <button class="k" data-k="0" type="button">0</button>
+    <button class="k" data-k="." type="button">.</button>
+  </section>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-label="환율 설정">
+    <button class="close" type="button" data-close aria-label="닫기">✕</button>
+    <h2>환율</h2>
+    <p class="meta" id="sheetMeta"></p>
+    <label class="field"><span>1 EUR =</span><input id="inEUR" inputmode="decimal" autocomplete="off" enterkeyhint="next"><em>원</em></label>
+    <label class="field"><span>1 AED =</span><input id="inAED" inputmode="decimal" autocomplete="off" enterkeyhint="done"><em>원</em></label>
+    <p class="note">환전소나 카드 앱에서 본 환율이 있으면 직접 넣어도 돼요.<br>저장한 환율은 인터넷 없이도 그대로 계산에 써요.</p>
+    <div class="actions">
+      <button class="btn" id="btnAuto" type="button">↻ 최신 환율 받기</button>
+      <button class="btn primary" id="btnSave" type="button">직접 입력 저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="install" id="install" hidden>
+  <div><b>인터넷 없이 쓰려면</b><br>Safari 공유 메뉴 → <b>‘홈 화면에 추가’</b>를 누르고, 홈 화면 아이콘으로 한 번 열어주세요.</div>
+  <button type="button" id="installClose" aria-label="닫기">✕</button>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+const CURS = ['EUR', 'AED', 'KRW'];
+const DEC = { EUR: 2, AED: 2, KRW: 0 };
+const OPSYM = { '+': '+', '-': '−', '*': '×', '/': '÷' };
+// 기본 환율 (2026-11-07 기준, KRW per 1 unit). 인터넷이 되면 자동으로 최신 값으로 바뀜.
+const DEFAULT_RATES = { EUR: 1516.33, AED: 369.99, at: Date.UTC(2026, 10, 7, 0, 2, 31), fetchedAt: 0, manual: false };
+const AUTO_EVERY = 2 * 3600e3;   // 인터넷 되면 2시간마다 갱신
+const STALE_AFTER = 3 * 864e5;   // 3일 넘으면 노란 점
+
+const $ = s => document.querySelector(s);
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+function validRates(r) {
+  return r && typeof r === 'object' && r.EUR > 0 && r.AED > 0 && isFinite(r.EUR) && isFinite(r.AED) ? r : null;
+}
+let rates = Object.assign({}, DEFAULT_RATES, validRates(store.get('fx.rates')) || {});
+let loading = false;
+
+let state = (() => {
+  const s = store.get('fx.state');
+  const ok = s && CURS.includes(s.active) && typeof s.expr === 'string' && /^-?[\d.+\-*/]{0,48}$/.test(s.expr);
+  return ok ? { active: s.active, expr: s.expr, fresh: true } : { active: 'EUR', expr: '', fresh: true };
+})();
+
+const rowsEl = {};
+document.querySelectorAll('.row').forEach(r => { rowsEl[r.dataset.cur] = r; });
+const K = c => (c === 'KRW' ? 1 : rates[c]);
+
+/* ---------- 계산 ---------- */
+function evaluate(e) {
+  e = e.replace(/[+\-*/]$/, '').replace(/\.$/, '');
+  if (!e || e === '-') return 0;
+  if (e[0] === '-') e = '0' + e;
+  const t = e.match(/\d+\.?\d*|\.\d+|[+\-*/]/g);
+  if (!t) return 0;
+  let sum = 0, sign = 1, cur = parseFloat(t[0]);
+  for (let i = 1; i < t.length; i += 2) {
+    const o = t[i], n = parseFloat(t[i + 1] ?? '0');
+    if (o === '*') cur *= n;
+    else if (o === '/') cur /= n;
+    else { sum += sign * cur; sign = o === '+' ? 1 : -1; cur = n; }
+  }
+  return sum + sign * cur;
+}
+const lastNum = e => e.match(/[\d.]*$/)[0];
+
+function addDigits(e, d) {
+  const n = lastNum(e);
+  if (n === '0') return d[0] === '0' ? null : e.slice(0, -1) + d;
+  if (n === '' && d === '00') d = '0';
+  const dot = n.indexOf('.');
+  const room = dot >= 0 ? 2 - (n.length - dot - 1) : 12 - n.length;
+  if (room <= 0) return null;
+  return e + d.slice(0, room);
+}
+function toExpr(v, d) {
+  const p = 10 ** d, r = Math.round(v * p) / p;
+  return r === 0 || !isFinite(r) ? '' : String(r);
+}
+
+function press(k) {
+  const fresh = state.fresh;
+  let e = state.expr;
+  if (k === 'C') {
+    e = '';
+  } else if (k === 'back') {
+    e = fresh ? '' : e.slice(0, -1);
+    if (e === '-') e = '';
+  } else if (k === '=') {
+    const v = evaluate(e);
+    if (!isFinite(v)) { toast('0으로 나눌 수 없어요'); return nudge(); }
+    if (Math.abs(v) >= 1e12) { toast('숫자가 너무 커요'); return nudge(); }
+    state.expr = toExpr(v, 2); state.fresh = true;
+    return commit();
+  } else if ('+-*/'.includes(k)) {
+    if (e === '') return nudge();
+    if (/[+\-*/]$/.test(e)) {
+      if (e.length === 1) return nudge();
+      e = e.slice(0, -1) + k;
+    } else {
+      if (e.endsWith('.')) e = e.slice(0, -1);
+      if (e.length >= 44) return nudge();
+      e += k;
+    }
+  } else if (k === '.') {
+    if (fresh) e = '';
+    const n = lastNum(e);
+    if (n.includes('.')) return nudge();
+    e += n === '' ? '0.' : '.';
+  } else {
+    if (fresh) e = '';
+    if (e.length >= 44) return nudge();
+    const r = addDigits(e, k);
+    if (r === null) return nudge();
+    e = r;
+  }
+  state.expr = e; state.fresh = false;
+  commit();
+}
+
+function setActive(c) {
+  if (c === state.active || !CURS.includes(c)) return;
+  const v = evaluate(state.expr);
+  const nv = (v * K(state.active)) / K(c);
+  state.active = c;
+  state.expr = isFinite(nv) ? toExpr(nv, DEC[c]) : '';
+  state.fresh = true;
+  commit();
+}
+
+function commit() {
+  store.set('fx.state', { active: state.active, expr: state.expr });
+  render();
+}
+
+/* ---------- 표시 ---------- */
+function prettyNum(s) {
+  const neg = s[0] === '-';
+  if (neg) s = s.slice(1);
+  const dot = s.indexOf('.');
+  const ip = dot < 0 ? s : s.slice(0, dot), fp = dot < 0 ? '' : s.slice(dot);
+  return (neg ? '−' : '') + (ip ? Number(ip).toLocaleString('en-US') : '0') + fp;
+}
+function prettyExpr(e) {
+  let out = '', num = '';
+  const flush = () => { if (num) { out += prettyNum(num); num = ''; } };
+  for (let i = 0; i < e.length; i++) {
+    const ch = e[i];
+    if (ch === '-' && i === 0) { num = '-'; continue; }
+    if ('+-*/'.includes(ch)) { flush(); out += ' ' + OPSYM[ch] + ' '; }
+    else num += ch;
+  }
+  flush();
+  return out.trim();
+}
+function fmt(c, v) {
+  const d = DEC[c];
+  let s = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (v < 0 && /[1-9]/.test(s)) s = '−' + s;
+  return s;
+}
+function koReading(n) {
+  const neg = n < 0;
+  n = Math.round(Math.abs(n));
+  if (n < 10000) return '';
+  const eok = Math.floor(n / 1e8), man = Math.floor((n % 1e8) / 1e4), rest = n % 1e4;
+  const p = [];
+  if (eok) p.push(eok.toLocaleString('en-US') + '억');
+  if (man) p.push(man + '만');
+  if (rest) p.push(String(rest));
+  return (neg ? '−' : '') + p.join(' ') + '원';
+}
+function setAmt(row, text, zero) {
+  const el = row.querySelector('.amt');
+  el.textContent = text;
+  el.classList.toggle('zero', zero);
+  const L = text.length;
+  el.dataset.size = L <= 9 ? 'l' : L <= 12 ? 'm' : L <= 15 ? 's' : 'xs';
+}
+
+function render() {
+  const a = state.active, e = state.expr;
+  const v = evaluate(e);
+  const ok = isFinite(v);
+  const krw = v * K(a);
+  const hasOp = /[+\-*/]/.test(e.slice(1));
+  for (const c of CURS) {
+    const row = rowsEl[c], act = c === a;
+    row.classList.toggle('active', act);
+    row.classList.toggle('typing', act && !state.fresh);
+    row.setAttribute('aria-pressed', act ? 'true' : 'false');
+    const val = act ? v : krw / K(c);
+    let text, zero;
+    if (act && !hasOp) { text = e === '' ? '0' : prettyNum(e); zero = e === ''; }
+    else { text = ok ? fmt(c, val) : '—'; zero = !ok || !/[1-9]/.test(text); }
+    setAmt(row, text, zero);
+    row.querySelector('.expr').textContent = act && hasOp ? prettyExpr(e) : '';
+    row.querySelector('.sub').textContent = c === 'KRW' && ok ? koReading(val) : '';
+  }
+}
+
+function rateText(v) { return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmtDate(t) { const d = new Date(t); return `${d.getMonth() + 1}월 ${d.getDate()}일`; }
+function fmtTime(t) {
+  const d = new Date(t);
+  return `${d.getFullYear()}년 ${fmtDate(t)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function renderStatus() {
+  const s = $('#status');
+  let st = 'ok', label;
+  if (loading) { st = 'busy'; label = '환율 받는 중…'; }
+  else if (rates.manual) { st = 'manual'; label = '직접 입력한 환율'; }
+  else {
+    label = fmtDate(rates.at) + ' 환율';
+    if (Date.now() - rates.at > STALE_AFTER) st = 'stale';
+    else if (navigator.onLine === false) { st = 'off'; label = '오프라인 · ' + label; }
+  }
+  s.dataset.state = st;
+  s.querySelector('.st-text').textContent = label;
+  $('#hint .rates').textContent = `1 € = ${rateText(rates.EUR)}원 · 1 AED = ${rateText(rates.AED)}원`;
+}
+
+/* ---------- 환율 받기 (인터넷 될 때만) ---------- */
+const fawaz = d => ({ krw: d.eur.krw, aed: d.eur.aed, at: Date.parse(d.date + 'T00:00:00Z') });
+const SOURCES = [
+  ['https://open.er-api.com/v6/latest/EUR', d => d.result === 'success' && { krw: d.rates.KRW, aed: d.rates.AED, at: d.time_last_update_unix * 1000 }],
+  ['https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json', fawaz],
+  ['https://latest.currency-api.pages.dev/v1/currencies/eur.json', fawaz],
+];
+async function refresh(byUser) {
+  if (loading) return false;
+  if (rates.manual && !byUser) return false;
+  loading = true; renderStatus();
+  let got = null;
+  for (const [url, parse] of SOURCES) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    try {
+      const res = await fetch(url, { cache: 'no-store', signal: ctl.signal });
+      if (!res.ok) continue;
+      const p = parse(await res.json());
+      if (p && p.krw > 500 && p.krw < 5000 && p.aed > 2 && p.aed < 10) { got = p; break; }
+    } catch (err) { /* 다음 소스 시도 */ }
+    finally { clearTimeout(timer); }
+  }
+  loading = false;
+  if (got) {
+    rates = { EUR: got.krw, AED: got.krw / got.aed, at: isFinite(got.at) ? got.at : Date.now(), fetchedAt: Date.now(), manual: false };
+    store.set('fx.rates', rates);
+    render();
+    if (byUser) toast('최신 환율로 바꿨어요');
+  } else if (byUser) {
+    toast('인터넷이 안 돼서 저장된 환율로 계산해요');
+  }
+  renderStatus();
+  return !!got;
+}
+function maybeRefresh() {
+  if (!rates.manual && navigator.onLine !== false && Date.now() - (rates.fetchedAt || 0) > AUTO_EVERY) refresh(false);
+}
+
+/* ---------- 환율 직접 입력 ---------- */
+const sheet = $('#sheet');
+function fillSheet() {
+  $('#inEUR').value = rateText(rates.EUR).replace(/,/g, '');
+  $('#inAED').value = rateText(rates.AED).replace(/,/g, '');
+  $('#sheetMeta').textContent = rates.manual
+    ? `직접 입력 · ${fmtTime(rates.at)}`
+    : `자동 · ${fmtTime(rates.at)} 기준 시장 환율`;
+}
+function openSheet() {
+  fillSheet();
+  sheet.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add('open')));
+}
+function closeSheet() {
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  sheet.classList.remove('open');
+  setTimeout(() => { sheet.hidden = true; }, 200);
+}
+sheet.addEventListener('click', ev => { if (ev.target.closest('[data-close]')) closeSheet(); });
+$('#inEUR').addEventListener('keydown', ev => { if (ev.key === 'Enter') $('#inAED').focus(); });
+$('#inAED').addEventListener('keydown', ev => { if (ev.key === 'Enter') $('#btnSave').click(); });
+$('#btnSave').addEventListener('click', () => {
+  const eur = parseFloat($('#inEUR').value.replace(/,/g, ''));
+  const aed = parseFloat($('#inAED').value.replace(/,/g, ''));
+  if (!(eur > 0 && aed > 0 && isFinite(eur) && isFinite(aed))) { toast('숫자를 확인해 주세요'); return; }
+  rates = { EUR: eur, AED: aed, at: Date.now(), fetchedAt: rates.fetchedAt || 0, manual: true };
+  store.set('fx.rates', rates);
+  render(); renderStatus(); closeSheet();
+  toast('직접 넣은 환율로 계산해요');
+});
+$('#btnAuto').addEventListener('click', async () => {
+  const ok = await refresh(true);
+  if (ok) { fillSheet(); closeSheet(); }
+});
+
+/* ---------- 입력 이벤트 ---------- */
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2300);
+}
+function nudge() {
+  const row = rowsEl[state.active];
+  row.classList.remove('nudge'); void row.offsetWidth; row.classList.add('nudge');
+}
+
+const pad = $('#pad');
+let holdTimer = null;
+pad.addEventListener('pointerdown', ev => {
+  const b = ev.target.closest('.k');
+  if (!b) return;
+  ev.preventDefault();
+  b.classList.add('down');
+  const k = b.dataset.k;
+  press(k);
+  if (k === 'back') holdTimer = setTimeout(() => press('C'), 500); // 길게 누르면 전체 지우기
+});
+const release = () => {
+  clearTimeout(holdTimer);
+  pad.querySelectorAll('.k.down').forEach(b => b.classList.remove('down'));
+};
+['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, release));
+pad.addEventListener('contextmenu', ev => ev.preventDefault());
+
+document.querySelectorAll('.row').forEach(r => r.addEventListener('click', () => setActive(r.dataset.cur)));
+$('#status').addEventListener('click', () => refresh(true));
+$('#hint').addEventListener('click', openSheet);
+
+document.addEventListener('keydown', ev => {
+  if (!sheet.hidden) { if (ev.key === 'Escape') closeSheet(); return; }
+  if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    const i = CURS.indexOf(state.active);
+    setActive(CURS[(i + (ev.key === 'ArrowDown' ? 1 : 2)) % 3]);
+    ev.preventDefault();
+    return;
+  }
+  const map = { Enter: '=', '=': '=', Backspace: 'back', Escape: 'C', Delete: 'C', c: 'C', C: 'C',
+    x: '*', X: '*', '*': '*', '/': '/', '+': '+', '-': '-', '.': '.', ',': '.' };
+  const k = /^\d$/.test(ev.key) ? ev.key : map[ev.key];
+  if (!k) return;
+  ev.preventDefault();
+  press(k);
+  const b = pad.querySelector(`[data-k="${CSS.escape(k)}"]`);
+  if (b) { b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 90); }
+});
+
+window.addEventListener('online', () => { renderStatus(); maybeRefresh(); });
+window.addEventListener('offline', renderStatus);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderStatus(); maybeRefresh(); } });
+
+/* ---------- 홈 화면 설치 안내 (iPhone Safari) ---------- */
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+if (isIOS && !standalone && /^https?:$/.test(location.protocol) && !store.get('fx.installHidden')) {
+  $('#install').hidden = false;
+}
+$('#installClose').addEventListener('click', () => { $('#install').hidden = true; store.set('fx.installHidden', true); });
+
+/* ---------- 오프라인 캐시 ---------- */
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+
+render();
+renderStatus();
+maybeRefresh();
+})();
+</script>
+</body>
+</html>
