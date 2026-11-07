@@ -310,9 +310,10 @@ const idb = (() => {
     },
   };
 })();
+const written = new Set(); // 이번에 켠 뒤 새로 저장한 값 (이건 IndexedDB 옛 값으로 덮지 않음)
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} idb.set(k, v); },
+  set(k, v) { written.add(k); try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} idb.set(k, v); },
 };
 
 function validRates(r) {
@@ -750,6 +751,7 @@ const syncFromIdb = saved => {
   if (!saved) return;
   let changed = false;
   for (const k of PERSIST_KEYS) {
+    if (written.has(k)) continue;
     const lsRaw = (() => { try { return localStorage.getItem(k); } catch (e) { return null; } })();
     if (k in saved) {
       const raw = JSON.stringify(saved[k]);
@@ -760,14 +762,18 @@ const syncFromIdb = saved => {
   }
   if (changed) { rates = loadRates(); state = loadState(); render(); renderStatus(); }
 };
-const ready = Promise.race([
-  idb.getAll(PERSIST_KEYS).catch(() => null),
-  new Promise(r => setTimeout(() => r(null), 600)),
-]).then(syncFromIdb).catch(() => {}).then(() => {
-  document.documentElement.classList.remove('boot');
-  setupInstall();
-  maybeRefresh();
-});
+const t0 = performance.now();
+const idbLoad = idb.getAll(PERSIST_KEYS).catch(() => null)
+  .then(v => { window.fxIdbMs = Math.round(performance.now() - t0); return v; });
+const unhide = () => document.documentElement.classList.remove('boot');
+// 화면은 최대 0.6초만 가리고 보여줌. 저장소가 늦게 열려도 값이 오면 그때 반영 (최대 5초 기다림)
+Promise.race([idbLoad, new Promise(r => setTimeout(r, 600))]).then(unhide);
+const ready = Promise.race([idbLoad, new Promise(r => setTimeout(() => r(null), 5000))])
+  .then(syncFromIdb).catch(() => {}).then(() => {
+    unhide();
+    setupInstall();
+    maybeRefresh(); // 직접 넣은 환율을 먼저 확인한 뒤에 자동 갱신
+  });
 window.fxReady = ready;
 })();
 </script>
