@@ -134,10 +134,19 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 @media (prefers-color-scheme: dark){ .k.clear{color:#ff7b70} }
 .k.eq{grid-row:span 2;background:var(--accent);color:var(--on-accent);font-size:32px}
 .k svg{width:26px;height:26px}
-/* 지우기 버튼: 진하게, 크게 */
-.k.back svg{width:36px;height:36px}
-.k.back .shape{fill:var(--ink)}
-.k.back .x{fill:none;stroke:var(--key2);stroke-width:2.3;stroke-linecap:round}
+/* 지우기 버튼: 진한 바탕으로 꽉 채워서 눈에 띄게 */
+.k.back{background:var(--ink);box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.k.back svg{width:42px;height:42px}
+.k.back .shape{fill:var(--bg)}
+.k.back .x{fill:none;stroke:var(--ink);stroke-width:2.4;stroke-linecap:round}
+@media (prefers-color-scheme: dark){ .k.back.down{filter:brightness(.85)} }
+
+/* 숫자 칸 옆으로 쓸기 → 한 자리 지움 */
+.rows{touch-action:none}
+.row.swipe-l .amt{animation:swipeL .2s ease-out}
+.row.swipe-r .amt{animation:swipeR .2s ease-out}
+@keyframes swipeL{from{transform:translateX(-16px);opacity:.35}}
+@keyframes swipeR{from{transform:translateX(16px);opacity:.35}}
 
 /* sheet */
 .sheet{position:fixed;inset:0;z-index:20}
@@ -381,7 +390,9 @@ function press(k) {
   if (k === 'C') {
     e = '';
   } else if (k === 'back') {
-    e = fresh ? '' : e.slice(0, -1);
+    // 항상 한 자리씩 (다시 켰을 때나 = 뒤에도). 전부 지우기는 C 또는 ⌫ 길게
+    if (e === '') return nudge();
+    e = e.slice(0, -1);
     if (e === '-') e = '';
   } else if (k === '=') {
     const v = evaluate(e);
@@ -639,7 +650,30 @@ const release = () => {
 ['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, release));
 pad.addEventListener('contextmenu', ev => ev.preventDefault());
 
-document.querySelectorAll('.row').forEach(r => r.addEventListener('click', () => setActive(r.dataset.cur)));
+/* 숫자 칸을 옆으로 쓸면 한 자리씩 지우기 (아이폰 기본 계산기처럼, 한 번 쓸 때 한 자리) */
+const rowsBox = $('.rows');
+let swipe = null, swipedAt = 0;
+rowsBox.addEventListener('pointerdown', ev => { swipe = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, done: false }; });
+rowsBox.addEventListener('pointermove', ev => {
+  if (!swipe || swipe.done || swipe.id !== ev.pointerId) return;
+  const dx = ev.clientX - swipe.x, dy = ev.clientY - swipe.y;
+  if (Math.abs(dx) >= 30 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    swipe.done = true;
+    swipedAt = Date.now();
+    const hadSomething = state.expr !== '';
+    press('back');
+    if (hadSomething) {
+      const row = rowsEl[state.active], cls = dx < 0 ? 'swipe-l' : 'swipe-r';
+      row.classList.remove('swipe-l', 'swipe-r'); void row.offsetWidth; row.classList.add(cls);
+    }
+  }
+});
+['pointerup', 'pointercancel'].forEach(t => rowsBox.addEventListener(t, () => { swipe = null; }));
+
+document.querySelectorAll('.row').forEach(r => r.addEventListener('click', () => {
+  if (Date.now() - swipedAt < 450) return; // 쓸기 끝에 손 뗀 걸 '칸 누르기'로 착각하지 않게
+  setActive(r.dataset.cur);
+}));
 document.querySelectorAll('#seg button').forEach(b => b.addEventListener('click', () => setForeign(b.dataset.f)));
 $('#status').addEventListener('click', () => refresh(true));
 $('#hint').addEventListener('click', openSheet);
