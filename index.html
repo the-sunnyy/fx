@@ -131,6 +131,13 @@ html.boot .app{visibility:hidden} /* 저장된 값 불러오는 0.0몇 초 동�
 }
 .q.down{transform:scale(.93)}
 .q[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);box-shadow:none}
+.q{position:relative}
+/* 같은 버튼 여러 번 → 오른쪽 위에 ×2, ×3 표시 */
+.q[data-times]::after{
+  content:attr(data-times);position:absolute;top:-8px;right:-5px;z-index:1;
+  min-width:22px;padding:0 6px;border-radius:999px;background:var(--ink);color:var(--bg);
+  font-size:12px;font-weight:700;line-height:19px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.2);
+}
 @media (prefers-color-scheme: dark){ .q{box-shadow:inset 0 0 0 1.5px rgba(63,196,164,.28)} .q[aria-pressed="true"]{box-shadow:none} }
 .row.pop .amt{animation:pop .2s ease-out;transform-origin:right center}
 @keyframes pop{from{transform:scale(.88);opacity:.4}}
@@ -434,6 +441,7 @@ function toExpr(v, d) {
 
 function press(k) {
   dropUndo();
+  lastQuick = null;
   const fresh = state.fresh;
   let e = state.expr;
   if (k === 'C') {
@@ -477,13 +485,24 @@ function press(k) {
 
 // 자주 쓰는 금액 버튼: 지금 고른 외화에 그 금액을 바로 넣음.
 // "20 +" 처럼 계산 기호 뒤에 누르면 이어서 계산 (20 + 5)
+// 같은 버튼을 연달아 또 누르면 그만큼 더 쌓임: [10] [10] → 10 × 2 = 20, 한 번 더 → 10 × 3 = 30
+let lastQuick = null; // 방금 누른 금액 버튼 { n, f, count, base, expr }. 다른 키를 누르면 초기화
 function quick(n) {
   dropUndo();
-  const f = state.foreign;
-  if (state.active === f && !state.fresh && /[+\-*/]$/.test(state.expr) && state.expr.length < 44) {
-    state.expr += n; state.fresh = false;
+  const f = state.foreign, lq = lastQuick;
+  if (lq && lq.n === n && lq.f === f && state.active === f && state.expr === lq.expr && lq.count < 99) {
+    lq.count++;
+    state.expr = lq.base + n + '*' + lq.count;
+    lq.expr = state.expr;
   } else {
-    state.active = f; state.expr = String(n); state.fresh = true;
+    let base = '';
+    if (state.active === f && !state.fresh && /[+\-*/]$/.test(state.expr) && state.expr.length < 44) {
+      base = state.expr; state.fresh = false;
+    } else {
+      state.active = f; state.fresh = true;
+    }
+    state.expr = base + n;
+    lastQuick = { n, f, count: 1, base, expr: state.expr };
   }
   commit();
   const row = rowsEl[f];
@@ -494,6 +513,7 @@ function quick(n) {
 function setForeign(f) {
   if (f === state.foreign || !FOREIGN.includes(f)) return;
   dropUndo();
+  lastQuick = null;
   if (state.active === state.foreign) state.active = f;
   state.foreign = f;
   store.set('fx.foreign', f);
@@ -505,6 +525,7 @@ function setActive(c) {
   if (c === state.active || !CURS.includes(c)) return;
   if (c !== 'KRW' && c !== state.foreign) return;
   dropUndo();
+  lastQuick = null;
   const v = evaluate(state.expr);
   const nv = (v * K(state.active)) / K(c);
   state.active = c;
@@ -571,9 +592,13 @@ function render() {
   const hasOp = /[+\-*/]/.test(e.slice(1));
   document.querySelectorAll('#seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.f === state.foreign ? 'true' : 'false'));
   const fName = state.foreign === 'EUR' ? '유로' : '디르함';
+  const lq = lastQuick && lastQuick.f === state.foreign && a === state.foreign && e === lastQuick.expr ? lastQuick : null;
   document.querySelectorAll('#quick .q').forEach(b => {
-    b.setAttribute('aria-pressed', a === state.foreign && e === b.dataset.q ? 'true' : 'false');
-    b.setAttribute('aria-label', b.dataset.q + ' ' + fName);
+    const on = lq ? String(lq.n) === b.dataset.q : a === state.foreign && e === b.dataset.q;
+    const times = on && lq && lq.count > 1 ? lq.count : 0;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (times) b.dataset.times = '×' + times; else delete b.dataset.times;
+    b.setAttribute('aria-label', b.dataset.q + ' ' + fName + (times ? ' ' + times + '번' : ''));
   });
   for (const c of CURS) {
     const row = rowsEl[c], act = c === a;
